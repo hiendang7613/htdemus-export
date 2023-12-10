@@ -1,12 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-"""
-Code to apply a model to a mix. It will handle chunking with overlaps and
-inteprolation between chunks, as well as the "shift trick".
-"""
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import random
@@ -18,67 +9,22 @@ from torch import nn
 from torch.nn import functional as F
 import tqdm
 
-from .demucs import Demucs
-from .hdemucs import HDemucs
-from .htdemucs import HTDemucs
-from .utils import center_trim, DummyPoolExecutor
-
-Model = tp.Union[Demucs, HDemucs, HTDemucs]
 import torch
 
 
-class BagOfModels(nn.Module):
-    def __init__(self, models: tp.List[Model],
-                 weights: tp.Optional[tp.List[tp.List[float]]] = None,
-                 segment: tp.Optional[float] = None):
-        """
-        Represents a bag of models with specific weights.
-        You should call `apply_model` rather than calling directly the forward here for
-        optimal performance.
+def center_trim(tensor: torch.Tensor, reference: tp.Union[torch.Tensor, int]):
 
-        Args:
-            models (list[nn.Module]): list of Demucs/HDemucs models.
-            weights (list[list[float]]): list of weights. If None, assumed to
-                be all ones, otherwise it should be a list of N list (N number of models),
-                each containing S floats (S number of sources).
-            segment (None or float): overrides the `segment` attribute of each model
-                (this is performed inplace, be careful is you reuse the models passed).
-        """
-        super().__init__()
-        assert len(models) > 0
-        first = models[0]
-        for other in models:
-            assert other.sources == first.sources
-            assert other.samplerate == first.samplerate
-            assert other.audio_channels == first.audio_channels
-            if segment is not None:
-                if not isinstance(other, HTDemucs) and segment > other.segment:
-                    other.segment = segment
-
-        self.audio_channels = first.audio_channels
-        self.samplerate = first.samplerate
-        self.sources = first.sources
-        self.models = nn.ModuleList(models)
-
-        if weights is None:
-            weights = [[1. for _ in first.sources] for _ in models]
-        else:
-            assert len(weights) == len(models)
-            for weight in weights:
-                assert len(weight) == len(first.sources)
-        self.weights = weights
-
-    @property
-    def max_allowed_segment(self) -> float:
-        max_allowed_segment = float('inf')
-        for model in self.models:
-            if isinstance(model, HTDemucs):
-                max_allowed_segment = min(max_allowed_segment, float(model.segment))
-        return max_allowed_segment
-
-    def forward(self, x):
-        raise NotImplementedError("Call `apply_model` on this.")
-
+    ref_size: int
+    if isinstance(reference, torch.Tensor):
+        ref_size = reference.size(-1)
+    else:
+        ref_size = reference
+    delta = tensor.size(-1) - ref_size
+    if delta < 0:
+        raise ValueError("tensor must be larger than reference. " f"Delta is {delta}.")
+    if delta:
+        tensor = tensor[..., delta // 2:-(delta - delta // 2)]
+    return tensor
 
 class TensorChunk:
     def __init__(self, tensor, offset=0, length=None):
@@ -125,27 +71,9 @@ class TensorChunk:
         return out
 
 
-def tensor_chunk(tensor_or_chunk):
-    if isinstance(tensor_or_chunk, TensorChunk):
-        return tensor_or_chunk
-    else:
-        assert isinstance(tensor_or_chunk, th.Tensor)
-        return TensorChunk(tensor_or_chunk)
-
-
-def _replace_dict(_dict: tp.Optional[dict], *subs: tp.Tuple[tp.Hashable, tp.Any]) -> dict:
-    if _dict is None:
-        _dict = {}
-    else:
-        _dict = copy.copy(_dict)
-    for key, value in subs:
-        _dict[key] = value
-    return _dict
-
 from fractions import Fraction
 
-def apply_model(model: tp.Union[BagOfModels, Model],
-                mix: tp.Union[th.Tensor, TensorChunk],
+def apply_model(model, mix,
                 num_workers: int = 8,
                 overlap: float = 0.25, 
                 device: tp.Union[str, th.device] = 'cuda',
@@ -161,9 +89,10 @@ def apply_model(model: tp.Union[BagOfModels, Model],
     batch, channels, length = mix.shape
 
     import torch
-    model = torch.jit.load("/Users/apple/demucs/scriptmodule.pt")
-    model.to(device)
-    model.eval()
+    # model = model.models[0]
+
+    model = torch.jit.load("/Users/apple/htdemus-export/scriptmodule.pt", map_location=torch.device(device))
+    # model.eval()
 
     segment_length: int = int(samplerate * segment)
     stride = int((1 - overlap) * segment_length)
@@ -204,5 +133,9 @@ def run_model(model, mix, device, samplerate, segment):
     mix = TensorChunk(mix)
     padded_mix = mix.padded(valid_length).to(device)
     with th.no_grad():
+        # import torch
+        # model = torch.jit.trace(model, padded_mix)
+        # torch.jit.save(model, 'scriptmodule.pt')
+        # return
         out = model(padded_mix)
     return center_trim(out, length)

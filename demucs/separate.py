@@ -1,44 +1,69 @@
 from pathlib import Path
 import torch as th
-from .api import Separator, save_audio
+# from .api import Separator, save_audio
 
-def main(file_path):
-    print(file_path)
+import subprocess
 
-    dir_out = './'
-    model_name = "htdemucs"
-    device = "cuda" if th.cuda.is_available() else "cpu"
-    mp3_bitrate = 320
+import torch as th
+import torchaudio as ta
 
-    separator = Separator(model=model_name, device=device, overlap=0.25)
+from typing import Optional, Callable, Dict, Tuple, Union
 
+from .apply import apply_model
+from .audio import AudioFile, save_audio
+
+
+class Separator:
+    def __init__(
+        self,
+        device= "cpu",
+        overlap= 0.25,
+    ):
+        self._overlap = overlap
+        self._device = device
+        self._audio_channels = 2
+        self._samplerate = 44100
+        self.sources = ['drums', 'bass', 'other', 'vocals']
+
+    def separate_audio_file(self, file):
+        wav = AudioFile(file).read(streams=0, samplerate=self._samplerate, channels=self._audio_channels)
+        ref = wav.mean(0)
+        wav -= ref.mean()
+        wav /= ref.std() + 1e-8
+        out = apply_model(
+                None,
+                wav[None],
+                overlap=self._overlap,
+                device=self._device,
+            )
+        out *= ref.std() + 1e-8
+        out += ref.mean()
+        wav *= ref.std() + 1e-8
+        wav += ref.mean()
+        return (wav, dict(zip(self.sources, out[0])))
+
+
+
+
+
+def main(file_path, dir_out = './output', 
+        device= "cuda" if th.cuda.is_available() else "cpu"):
     file_path = Path(file_path)
+    out = Path(dir_out) 
+    out.mkdir(parents=True, exist_ok=True) 
 
-    out = Path(dir_out) / model_name
-    out.mkdir(parents=True, exist_ok=True)
-
+    # separate audio file
+    separator = Separator(device=device, overlap=0.25)
     _, res = separator.separate_audio_file(file_path.resolve())
 
-    ext = "mp3"
-    mp3_preset = 2
-    clip_mode = 'rescale'
-    float32 = False
-    int24 = False
-
-    kwargs = {
-        "samplerate": separator._samplerate,
-        "bitrate": mp3_bitrate,
-        "preset": mp3_preset,
-        "clip": clip_mode,
-        "as_float": float32,
-        "bits_per_sample": 24 if int24 else 16,
-    }
-
+    # save audio
     for name, source in res.items():
-        stem = out / f"{file_path.stem}_{name}.{ext}"
+        stem = out / f"{file_path.stem}_{name}.wav"
         stem.parent.mkdir(parents=True, exist_ok=True)
-        save_audio(source, str(stem), **kwargs)
+        save_audio(source, str(stem), samplerate=separator._samplerate)
+    pass
 
 
 if __name__ == "__main__":
-    main('test.mp3')
+    main('test.mp3', device="mps")
+
