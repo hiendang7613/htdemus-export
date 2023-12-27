@@ -12,6 +12,10 @@ from typing import Optional, Callable, Dict, Tuple, Union
 from .apply import apply_model
 from .audio import AudioFile, save_audio
 
+# my_script.py
+import argparse
+
+
 
 class Separator:
     def __init__(
@@ -47,14 +51,15 @@ class Separator:
 
 
 def main(file_path, dir_out = './output', 
-        device= "cuda" if th.cuda.is_available() else "cpu"):
+        device= "cuda" if th.cuda.is_available() else "cpu", 
+        model_path='/content/htdemus-export/scriptmodule.pt'):
     file_path = Path(file_path)
     out = Path(dir_out) 
     out.mkdir(parents=True, exist_ok=True) 
 
     # separate audio file
     separator = Separator(device=device, overlap=0.25)
-    _, res = separator.separate_audio_file(file_path.resolve())
+    _, res = separator.separate_audio_file(file_path.resolve(), model_path=model_path)
 
     # save audio
     for name, source in res.items():
@@ -65,5 +70,11 @@ def main(file_path, dir_out = './output',
 
 
 if __name__ == "__main__":
-    main('test.mp3', device="mps")
+    parser = argparse.ArgumentParser(description='Description of your script')
+    parser.add_argument('--input_audio', required=True)
+    parser.add_argument('--model_path', default=None)
+    parser.add_argument('--device', action='store_true', default='cuda')
+
+    args = parser.parse_args()
+    main(args.input_audio, device=args.device, model_path=args.model_path)
 
