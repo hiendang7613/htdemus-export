@@ -29,7 +29,7 @@ class Separator:
         self._samplerate = 44100
         self.sources = ['drums', 'bass', 'other', 'vocals']
 
-    def separate_audio_file(self, file):
+    def separate_audio_file(self, file, model_path):
         wav = AudioFile(file).read(streams=0, samplerate=self._samplerate, channels=self._audio_channels)
         ref = wav.mean(0)
         wav -= ref.mean()
@@ -39,6 +39,7 @@ class Separator:
                 wav[None],
                 overlap=self._overlap,
                 device=self._device,
+                model_path=model_path,
             )
         out *= ref.std() + 1e-8
         out += ref.mean()
@@ -52,7 +53,7 @@ class Separator:
 
 def main(file_path, dir_out = './output', 
         device= "cuda" if th.cuda.is_available() else "cpu", 
-        model_path='/content/htdemus-export/scriptmodule.pt'):
+        model_path=None):
     file_path = Path(file_path)
     out = Path(dir_out) 
     out.mkdir(parents=True, exist_ok=True) 
@@ -72,7 +73,7 @@ def main(file_path, dir_out = './output',
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your script')
     parser.add_argument('--input_audio', required=True)
-    parser.add_argument('--model_path', default=None)
+    parser.add_argument('--model_path', required=True)
     parser.add_argument('--device', action='store_true', default='cuda')
 
     args = parser.parse_args()
