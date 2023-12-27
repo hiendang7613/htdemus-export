@@ -80,7 +80,8 @@ def apply_model(model, mix,
                 transition_power: float = 1.,
                 len_model_sources = 4,
                 segment = Fraction(39,5),
-                samplerate = 44100
+                samplerate = 44100,
+                model_path='sth'
                 ) -> th.Tensor:
     
     pool=ThreadPoolExecutor(max_workers=num_workers)
@@ -91,7 +92,7 @@ def apply_model(model, mix,
     import torch
     # model = model.models[0]
 
-    model = torch.jit.load("/Users/apple/htdemus-export/scriptmodule.pt", map_location=torch.device(device))
+    model = torch.jit.load(model_path, map_location=torch.device(device))
     # model.eval()
 
     segment_length: int = int(samplerate * segment)
