@@ -74,7 +74,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your script')
     parser.add_argument('--input_audio', required=True)
     parser.add_argument('--model_path', required=True)
-    parser.add_argument('--device', action='store_true', default='cuda')
+    parser.add_argument('--device', default='cuda')
 
     args = parser.parse_args()
     main(args.input_audio, device=args.device, model_path=args.model_path)
